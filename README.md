@@ -16,7 +16,7 @@ It will give you all of the tools you need to get up and running quickly.
 
 ## How do I use it?
 
-Please refer to [How to set up the Newspack Starter Template for custom plugins](https://help.newspack.com/newspack-developer-hub/how-to-set-up-the-newspack-starter-template-for-custom-plugins/) on help.newspack.com for up-to-date installation and setup instructions.
+Please refer to [How to set up the Newspack Starter Template for custom plugins](https://help.newspack.com/newspack-developer-hub/how-to-set-up-the-newspack-starter-template-for-chicago-reader-plugins/) on help.newspack.com for up-to-date installation and setup instructions.
 
 ## Recommended pull request review workflow
 

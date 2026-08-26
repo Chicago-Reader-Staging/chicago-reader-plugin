@@ -2,10 +2,10 @@
 /**
  * Module Loader
  *
- * @package PublisherName
+ * @package ChicagoReader
  */
 
-namespace PublisherName;
+namespace ChicagoReader;
 
 defined( 'ABSPATH' ) || exit;
 

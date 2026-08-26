@@ -1,8 +1,8 @@
 {
-	"name": "publisher-name",
+	"name": "chicago-reader",
 	"version": "1.0.0",
 	"description": "A starting point for custom plugins on the Newspack platform",
-	"author": "Publisher name",
+	"author": "Chicago Reader",
 	"license": "GPL-2.0-or-later",
 	"main": "build/index.js",
 	"scripts": {

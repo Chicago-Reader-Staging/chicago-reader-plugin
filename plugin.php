@@ -1,21 +1,21 @@
 <?php
 /**
- * Plugin Name: Publisher Name custom plugin
+ * Plugin Name: Chicago Reader custom plugin
  * Plugin URI: https://newspack.com
  * Description: One plugin to rule them all.
  * Version: 1.0.0
- * Author: Publisher Name
- * Author URI: Publisher Website
- * Text Domain: publisher-name
+ * Author: Chicago Reader
+ * Author URI: https://chicagoreader.com
+ * Text Domain: chicago-reader
  *
  * For more information on WordPress plugin headers, see the following page:
  * https://developer.wordpress.org/plugins/plugin-basics/header-requirements/
  *
- * @package PublisherName
+ * @package ChicagoReader
  */
 
 // Ensure that everything is namespaced.
-namespace PublisherName;
+namespace ChicagoReader;
 
 // Exit if accessed directly.
 defined( 'ABSPATH' ) || exit;
@@ -31,7 +31,7 @@ if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 		function() {
 			?>
 			<div class="notice notice-error">
-				<p><?php esc_html_e( 'Publisher Name plugin was not properly built.', 'publisher-name' ); ?></p>
+				<p><?php esc_html_e( 'Chicago Reader plugin was not properly built.', 'chicago-reader' ); ?></p>
 			</div>
 			<?php
 		}

@@ -1,5 +1,5 @@
 {
-	"name": "publisher-name/custom-plugin",
+	"name": "chicago-reader/chicago-reader-plugin",
 	"require-dev": {
 		"dealerdirect/phpcodesniffer-composer-installer": "*",
 		"squizlabs/php_codesniffer": "^3.6",
@@ -20,7 +20,7 @@
 	},
 	"autoload": {
 		"psr-4": {
-			"PublisherName\\": "inc/"
+			"ChicagoReader\\": "inc/"
 		},
 		"files": []
 	},

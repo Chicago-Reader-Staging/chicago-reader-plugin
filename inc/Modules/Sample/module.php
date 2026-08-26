@@ -2,10 +2,10 @@
 /**
  * This file will be automatically loaded when the module is active.
  *
- * @package PublisherName
+ * @package ChicagoReader
  */
 
-namespace PublisherName\Modules\Sample;
+namespace ChicagoReader\Modules\Sample;
 
 /**
  * Here you can have code doing stuff. Just remember to always perform actions in a hook callback and never in the global scope.

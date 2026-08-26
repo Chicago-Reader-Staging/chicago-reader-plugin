@@ -1,6 +1,6 @@
 name: Deploy plugin to Multiple Staging sites
 
-concurrency: custom-plugin-staging
+concurrency: chicago-reader-plugin-staging
 
 permissions:
     contents: read
@@ -21,9 +21,9 @@ jobs:
         runs-on: ubuntu-latest
         needs: [Linting]
         env:
-          PLUGIN_DEST: /htdocs/wp-content/plugins/custom-plugin
-          PLUGIN_SOURCE: /htdocs/wp-content/uploads/custom-plugin__new
-          PLUGIN_BACKUP: /htdocs/wp-content/plugins/custom-plugin__bak
+          PLUGIN_DEST: /htdocs/wp-content/plugins/chicago-reader-plugin
+          PLUGIN_SOURCE: /htdocs/wp-content/uploads/chicago-reader-plugin__new
+          PLUGIN_BACKUP: /htdocs/wp-content/plugins/chicago-reader-plugin__bak
         if: ${{ vars.STAGING_SITES != '' }}
         strategy:
             matrix:
@@ -64,7 +64,7 @@ jobs:
                   set cmd:interactive no
                   open -u ${{ secrets[format('STAGING_SFTP_USER_{0}', matrix.site_name)] }},${{ secrets[format('STAGING_SFTP_PASSWORD_{0}', matrix.site_name)] }} sftp://sftp.wp.com
                   cd /htdocs/wp-content/uploads
-                  mkdir custom-plugin__new
+                  mkdir chicago-reader-plugin__new
                   quit
                 "
 

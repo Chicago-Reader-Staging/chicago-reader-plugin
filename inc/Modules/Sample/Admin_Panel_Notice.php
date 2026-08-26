@@ -2,10 +2,10 @@
 /**
  * Admin Panel Notice.
  *
- * @package PublisherName
+ * @package ChicagoReader
  */
 
-namespace PublisherName\Modules\Sample;
+namespace ChicagoReader\Modules\Sample;
 
 defined( 'ABSPATH' ) || exit;
 
