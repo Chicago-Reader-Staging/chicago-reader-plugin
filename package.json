@@ -1,0 +1,35 @@
+{
+	"name": "publisher-name",
+	"version": "1.0.0",
+	"description": "A starting point for custom plugins on the Newspack platform",
+	"author": "Publisher name",
+	"license": "GPL-2.0-or-later",
+	"main": "build/index.js",
+	"scripts": {
+		"setup": "npm install && composer install && npx husky init && echo \"npx lint-staged\" > .husky/pre-commit",
+		"start": "wp-scripts start",
+		"build": "wp-scripts build",
+		"format": "wp-scripts format",
+		"lint": "composer run lint && npm run lint:js && npm run lint:css",
+		"lint:css": "wp-scripts lint-style --allow-empty-input",
+		"lint:js": "wp-scripts lint-js --no-error-on-unmatched-pattern",
+		"prepare": "husky"
+	},
+	"lint-staged": {
+		"*.js": [
+			"wp-scripts lint-js --ignore-pattern 'build/**/*.js'"
+		],
+		"*.php": [
+			"composer run lint"
+		],
+		"*.scss": [
+			"wp-scripts lint-style"
+		]
+	},
+	"prettier": "@wordpress/prettier-config",
+	"devDependencies": {
+		"@wordpress/scripts": "*",
+		"husky": "^9.1.7",
+		"lint-staged": "^13.2.0"
+	}
+}

@@ -1,0 +1,45 @@
+name: Static Linting
+
+on:
+    workflow_call:
+    pull_request:
+    push:
+        branches:
+            - trunk
+
+jobs:
+    php:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v3
+            - name: Install dependencies
+              uses: php-actions/composer@8a65f0d3c6a1d17ca4800491a40b5756a4c164f3 # v6.1.2
+            - name: Lint PHP files
+              run: composer run lint
+
+        name: Linting PHP.
+
+    other:
+        runs-on: ubuntu-latest
+
+        strategy:
+            matrix:
+                node-version: [22.x, 18.x]
+
+        steps:
+            - uses: actions/checkout@v3
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ matrix.node-version }}
+            - name: Install dependencies
+              run: npm ci
+            - name: Run the linting command
+              run: npm run lint:js
+            - name: Lint CSS files
+              run: npm run lint:css
+              env:
+                  CI: true
+
+        name: Linting JavaScript, and CSS.

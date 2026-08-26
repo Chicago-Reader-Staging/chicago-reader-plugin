@@ -1,0 +1,95 @@
+name: Deploy plugin to Multiple Prod sites
+
+concurrency: custom-plugin-prod
+
+permissions:
+    contents: read
+    actions: read
+
+on:
+    workflow_dispatch:
+    push:
+        branches:
+            - release
+
+jobs:
+    Linting:
+        uses: ./.github/workflows/linting.yml
+
+    Deploy:
+        name: FTP-Deploy-Action
+        runs-on: ubuntu-latest
+        needs: [Linting]
+        env:
+          PLUGIN_DEST: /htdocs/wp-content/plugins/custom-plugin
+          PLUGIN_SOURCE: /htdocs/wp-content/uploads/custom-plugin__new
+          PLUGIN_BACKUP: /htdocs/wp-content/plugins/custom-plugin__bak
+        if: ${{ vars.PROD_SITES != '' }}
+        strategy:
+            matrix:
+                # Site names are defined in repository variable PROD_SITES
+                # Example: PROD_SITES = ["SITE_1","SITE_2","SITE_3"]
+                site_name: ${{ fromJSON(vars.PROD_SITES) }}
+            fail-fast: false
+
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 2
+
+            - name: Use Node.js 22
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+
+            - name: Build Project
+              run: |
+                  npm ci
+                  npm run build --if-present
+
+            - name: Setup PHP
+              uses: shivammathur/setup-php@7c071dfe9dc99bdf297fa79cb49ea005b9fcadbc # 2.37.1
+              with:
+                  php-version: '7.4'
+                  tools: composer:v2
+
+            - name: Install Composer dependencies
+              run: composer install --no-dev --optimize-autoloader
+
+            - name: Ensure remote directory exists
+              run: |
+                sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+                lftp -c "
+                  set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'
+                  set cmd:interactive no
+                  open -u ${{ secrets[format('PROD_SFTP_USER_{0}', matrix.site_name)] }},${{ secrets[format('PROD_SFTP_PASSWORD_{0}', matrix.site_name)] }} sftp://sftp.wp.com
+                  cd /htdocs/wp-content/uploads
+                  mkdir custom-plugin__new
+                  quit
+                "
+
+            - name: FTP-Deploy-Action to a new folder ${{ matrix.site_name }}
+              uses: Automattic/FTP-Deploy-Action@3.1.2
+              with:
+                  ftp-server: sftp://sftp.wp.com${{ env.PLUGIN_SOURCE }}
+                  ftp-username: ${{ secrets[format('PROD_SFTP_USER_{0}', matrix.site_name)] }}
+                  ftp-password: ${{ secrets[format('PROD_SFTP_PASSWORD_{0}', matrix.site_name)] }}
+                  git-ftp-args: --insecure
+
+            - name: Atomic swap directories
+              run: |
+                sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+                LFTP_OPEN="set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'; set cmd:interactive no; open -u ${{ secrets[format('PROD_SFTP_USER_{0}', matrix.site_name)] }},${{ secrets[format('PROD_SFTP_PASSWORD_{0}', matrix.site_name)] }} sftp://sftp.wp.com"
+                # Move existing plugin to backup (no-op on first deploy)
+                lftp -c "$LFTP_OPEN; mv $PLUGIN_DEST $PLUGIN_BACKUP; quit" || true
+                # Copy uploads dir to plugin dir via runner (mv often fails across remote dirs on SFTP)
+                lftp -c "
+                  $LFTP_OPEN
+                  lcd /tmp
+                  mirror $PLUGIN_SOURCE plugin-deploy
+                  mirror -R plugin-deploy $PLUGIN_DEST
+                  rm -rf $PLUGIN_SOURCE
+                  quit
+                "
+                # Remove backup (ignore error)
+                lftp -c "$LFTP_OPEN; rm -rf $PLUGIN_BACKUP; quit" || true
