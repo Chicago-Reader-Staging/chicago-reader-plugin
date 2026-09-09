@@ -1,5 +1,8 @@
 {
 	"name": "chicago-reader/chicago-reader-plugin",
+	"require": {
+		"stripe/stripe-php": "^21.3"
+	},
 	"require-dev": {
 		"dealerdirect/phpcodesniffer-composer-installer": "*",
 		"squizlabs/php_codesniffer": "^3.6",
