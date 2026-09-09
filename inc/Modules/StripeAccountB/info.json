@@ -1,0 +1,4 @@
+{
+	"name": "Stripe Account B Gateway",
+	"description": "A second, independent WooCommerce payment gateway. Product categories configured in Settings > Payments > Account B route to this gateway's Stripe account instead of the default one; everything else uses the default gateway."
+}
