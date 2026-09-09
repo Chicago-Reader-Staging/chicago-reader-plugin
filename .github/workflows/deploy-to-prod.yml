@@ -56,9 +56,16 @@ jobs:
             - name: Install Composer dependencies
               run: composer install --no-dev --optimize-autoloader
 
+            - name: Install lftp
+              run: |
+                # Chrome is preinstalled on the runner; its package mirror must
+                # not prevent installation of this deployment dependency.
+                sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+                sudo apt-get update -qq
+                sudo apt-get install -y -qq lftp
+
             - name: Ensure remote directory exists
               run: |
-                sudo apt-get update -qq && sudo apt-get install -y -qq lftp
                 lftp -c "
                   set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'
                   set cmd:interactive no
@@ -78,7 +85,6 @@ jobs:
 
             - name: Atomic swap directories
               run: |
-                sudo apt-get update -qq && sudo apt-get install -y -qq lftp
                 LFTP_OPEN="set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'; set cmd:interactive no; open -u ${{ secrets[format('PROD_SFTP_USER_{0}', matrix.site_name)] }},${{ secrets[format('PROD_SFTP_PASSWORD_{0}', matrix.site_name)] }} sftp://sftp.wp.com"
                 # Move existing plugin to backup (no-op on first deploy)
                 lftp -c "$LFTP_OPEN; mv $PLUGIN_DEST $PLUGIN_BACKUP; quit" || true
