@@ -24,6 +24,8 @@ jobs:
           PLUGIN_DEST: /htdocs/wp-content/plugins/chicago-reader-plugin
           PLUGIN_SOURCE: /htdocs/wp-content/uploads/chicago-reader-plugin__new
           PLUGIN_BACKUP: /htdocs/wp-content/plugins/chicago-reader-plugin__bak
+          SFTP_USERNAME: ${{ secrets[format('STAGING_SFTP_USER_{0}', matrix.site_name)] }}
+          SFTP_PASSWORD: ${{ secrets[format('STAGING_SFTP_PASSWORD_{0}', matrix.site_name)] }}
         if: ${{ vars.STAGING_SITES != '' }}
         strategy:
             matrix:
@@ -66,12 +68,11 @@ jobs:
 
             - name: Ensure remote directory exists
               run: |
-                lftp -c "
+                lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "
                   set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'
                   set cmd:interactive no
-                  open -u ${{ secrets[format('STAGING_SFTP_USER_{0}', matrix.site_name)] }},${{ secrets[format('STAGING_SFTP_PASSWORD_{0}', matrix.site_name)] }} sftp://sftp.wp.com
                   cd /htdocs/wp-content/uploads
-                  mkdir chicago-reader-plugin__new
+                  mkdir -p chicago-reader-plugin__new
                   quit
                 "
 
@@ -85,12 +86,12 @@ jobs:
 
             - name: Atomic swap directories
               run: |
-                LFTP_OPEN="set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'; set cmd:interactive no; open -u ${{ secrets[format('STAGING_SFTP_USER_{0}', matrix.site_name)] }},${{ secrets[format('STAGING_SFTP_PASSWORD_{0}', matrix.site_name)] }} sftp://sftp.wp.com"
                 # Move existing plugin to backup (no-op on first deploy)
-                lftp -c "$LFTP_OPEN; mv $PLUGIN_DEST $PLUGIN_BACKUP; quit" || true
+                lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'; set cmd:interactive no; mv $PLUGIN_DEST $PLUGIN_BACKUP; quit" || true
                 # Copy uploads dir to plugin dir via runner (mv often fails across remote dirs on SFTP)
-                lftp -c "
-                  $LFTP_OPEN
+                lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "
+                  set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'
+                  set cmd:interactive no
                   lcd /tmp
                   mirror $PLUGIN_SOURCE plugin-deploy
                   mirror -R plugin-deploy $PLUGIN_DEST
@@ -98,4 +99,4 @@ jobs:
                   quit
                 "
                 # Remove backup (ignore error)
-                lftp -c "$LFTP_OPEN; rm -rf $PLUGIN_BACKUP; quit" || true
+                lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'; set cmd:interactive no; rm -rf $PLUGIN_BACKUP; quit" || true
