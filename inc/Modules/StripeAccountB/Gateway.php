@@ -1,8 +1,9 @@
 <?php
 /**
  * Account B WooCommerce payment gateway. Routes to a second, independent
- * Stripe account via a Stripe Checkout Session (redirect), so no card
- * fields are rendered on the WooCommerce checkout page itself.
+ * Stripe account via an embedded Stripe Payment Element on the checkout
+ * page itself — the same on-page pattern the default Stripe gateway uses,
+ * confirmed against Stripe's deferred-intent integration docs.
  *
  * @package ChicagoReader
  */
@@ -30,8 +31,8 @@ class Gateway extends \WC_Payment_Gateway {
 	public function __construct() {
 		$this->id                 = 'chicago_reader_account_b';
 		$this->method_title       = 'Chicago Reader — Account B (Stripe)';
-		$this->method_description = 'Routes checkout to a second, independent Stripe account for the product categories selected below. Card entry happens on a Stripe-hosted page; no card fields are shown on this site.';
-		$this->has_fields         = false;
+		$this->method_description = 'Routes checkout to a second, independent Stripe account for the product categories selected below. Card fields render inline on the checkout page, same as the default gateway.';
+		$this->has_fields         = true;
 		$this->supports           = array( 'products', 'subscriptions' );
 
 		$this->init_form_fields();
@@ -43,6 +44,7 @@ class Gateway extends \WC_Payment_Gateway {
 		$this->testmode    = 'yes' === $this->get_option( 'testmode' );
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
 		add_action( 'woocommerce_api_' . $this->id, array( $this, 'handle_webhook' ) );
 		add_action( 'woocommerce_scheduled_subscription_payment_' . $this->id, array( $this, 'process_subscription_payment' ), 10, 2 );
 	}
@@ -151,8 +153,8 @@ class Gateway extends \WC_Payment_Gateway {
 			return false;
 		}
 		foreach ( WC()->cart->get_cart() as $cart_item ) {
-			$product_id  = $cart_item['product_id'];
-			$category_ids = wc_get_product_term_ids( $product_id, 'product_cat' );
+			$product_id    = $cart_item['product_id'];
+			$category_ids  = wc_get_product_term_ids( $product_id, 'product_cat' );
 			if ( array_intersect( $configured, array_map( 'strval', $category_ids ) ) ) {
 				return true;
 			}
@@ -171,6 +173,15 @@ class Gateway extends \WC_Payment_Gateway {
 	}
 
 	/**
+	 * Active publishable key for the current mode.
+	 *
+	 * @return string
+	 */
+	private function get_publishable_key() {
+		return $this->testmode ? $this->get_option( 'test_publishable_key' ) : $this->get_option( 'live_publishable_key' );
+	}
+
+	/**
 	 * Active webhook signing secret for the current mode.
 	 *
 	 * @return string
@@ -180,49 +191,144 @@ class Gateway extends \WC_Payment_Gateway {
 	}
 
 	/**
-	 * Create a Stripe Checkout Session for the order and redirect the customer to it.
+	 * Enqueue Stripe.js and the checkout script on the checkout page.
+	 */
+	public function payment_scripts() {
+		if ( ! is_checkout() || 'yes' !== $this->enabled ) {
+			return;
+		}
+
+		wp_enqueue_script( 'stripe-js', 'https://js.stripe.com/v3/', array(), null, true ); // phpcs:ignore WordPress.WP.EnqueuedScriptVersion.NotInFooter, WordPress.WP.EnqueuedScriptVersion.NoVersion -- Stripe.js must never be self-hosted or version-pinned; served from js.stripe.com by design.
+		wp_enqueue_script( 'chicago-reader-account-b-checkout', plugins_url( 'assets/checkout.js', __FILE__ ), array( 'jquery', 'stripe-js' ), '1.0.0', true );
+		wp_localize_script(
+			'chicago-reader-account-b-checkout',
+			'chicagoReaderAccountB',
+			array(
+				'gatewayId'      => $this->id,
+				'publishableKey' => $this->get_publishable_key(),
+				'amount'         => (int) round( WC()->cart->get_total( 'edit' ) * 100 ),
+				'currency'       => strtolower( get_woocommerce_currency() ),
+			)
+		);
+	}
+
+	/**
+	 * Render the inline card form mount point.
+	 */
+	public function payment_fields() {
+		if ( ! empty( $this->description ) ) {
+			echo wp_kses_post( wpautop( $this->description ) );
+		}
+		?>
+		<div id="chicago-reader-account-b-payment-element"></div>
+		<div id="chicago-reader-account-b-errors" role="alert"></div>
+		<input type="hidden" name="chicago_reader_account_b_confirmation_token" id="chicago-reader-account-b-confirmation-token" />
+		<?php
+	}
+
+	/**
+	 * Charge the order using the confirmation token collected on the checkout page.
 	 *
 	 * @param int $order_id WooCommerce order ID.
 	 * @return array
 	 */
 	public function process_payment( $order_id ) {
-		$order       = wc_get_order( $order_id );
-		$stripe      = $this->get_stripe_client();
-		$is_renewal_setup = $this->order_contains_subscription( $order );
+		$order = wc_get_order( $order_id );
 
-		$session_args = array(
-			'mode'                => 'payment',
-			'line_items'          => array(
-				array(
-					'price_data' => array(
-						'currency'     => strtolower( $order->get_currency() ),
-						'product_data' => array( 'name' => 'Order #' . $order->get_order_number() ),
-						'unit_amount'  => (int) round( $order->get_total() * 100 ),
-					),
-					'quantity'   => 1,
-				),
-			),
-			'success_url'         => $this->get_return_url( $order ),
-			'cancel_url'          => wc_get_checkout_url(),
-			'customer_email'      => $order->get_billing_email(),
-			'client_reference_id' => (string) $order->get_id(),
-			'metadata'            => array( 'order_id' => (string) $order->get_id() ),
+		$confirmation_token_id = isset( $_POST['chicago_reader_account_b_confirmation_token'] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- verified by WooCommerce's own checkout nonce before process_payment runs.
+			? sanitize_text_field( wp_unslash( $_POST['chicago_reader_account_b_confirmation_token'] ) ) // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			: '';
+
+		if ( ! $confirmation_token_id ) {
+			wc_add_notice( 'Payment could not be processed. Please try again.', 'error' );
+			return array( 'result' => 'failure' );
+		}
+
+		$is_renewal_setup = $this->order_contains_subscription( $order );
+		$stripe           = $this->get_stripe_client();
+
+		$intent_args = array(
+			'amount'             => (int) round( $order->get_total() * 100 ),
+			'currency'           => strtolower( $order->get_currency() ),
+			'confirmation_token' => $confirmation_token_id,
+			'confirm'            => true,
+			'return_url'         => $this->get_return_url( $order ),
+			'metadata'           => array( 'order_id' => (string) $order->get_id() ),
 		);
 
 		if ( $is_renewal_setup ) {
-			$session_args['customer_creation']          = 'always';
-			$session_args['payment_intent_data']        = array( 'setup_future_usage' => 'off_session' );
+			$intent_args['customer']            = $this->get_or_create_customer_id( $order );
+			$intent_args['setup_future_usage']  = 'off_session';
 		}
 
-		$session = $stripe->checkout->sessions->create( $session_args );
+		try {
+			$intent = $stripe->paymentIntents->create( $intent_args ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Stripe SDK's own camelCase property.
+		} catch ( \Exception $e ) {
+			wc_add_notice( $e->getMessage(), 'error' );
+			return array( 'result' => 'failure' );
+		}
 
-		$order->update_meta_data( '_chicago_reader_account_b_session_id', $session->id );
-		$order->save();
+		if ( 'succeeded' === $intent->status ) {
+			$order->payment_complete( $intent->id );
+			$order->update_meta_data( '_chicago_reader_account_b_payment_intent_id', $intent->id );
+			$order->save();
 
-		return array(
-			'result'   => 'success',
-			'redirect' => $session->url,
-		);
+			if ( $is_renewal_setup ) {
+				$this->store_subscription_payment_method( $order, $intent_args['customer'], $intent->payment_method );
+			}
+
+			return array(
+				'result'   => 'success',
+				'redirect' => $this->get_return_url( $order ),
+			);
+		}
+
+		// A card requiring 3D Secure or similar returns `requires_action` here.
+		// Known gap: this gateway does not yet drive that challenge client-side.
+		$order->update_status( 'on-hold', 'Stripe requires additional card authentication that this gateway does not yet handle.' );
+		wc_add_notice( 'Your bank requires additional verification for this card. Please try a different card.', 'error' );
+		return array( 'result' => 'failure' );
+	}
+
+	/**
+	 * Find or create a Stripe Customer for the order's account, for future renewal charges.
+	 *
+	 * @param \WC_Order $order Order.
+	 * @return string
+	 */
+	private function get_or_create_customer_id( $order ) {
+		$user_id  = $order->get_customer_id();
+		$existing = $user_id ? get_user_meta( $user_id, '_chicago_reader_account_b_customer_id', true ) : '';
+		if ( $existing ) {
+			return $existing;
+		}
+
+		$stripe   = $this->get_stripe_client();
+		$customer = $stripe->customers->create( array( 'email' => $order->get_billing_email() ) );
+
+		if ( $user_id ) {
+			update_user_meta( $user_id, '_chicago_reader_account_b_customer_id', $customer->id );
+		}
+
+		return $customer->id;
+	}
+
+	/**
+	 * Record the Stripe customer/payment method on the order's subscription(s) for future renewals.
+	 *
+	 * @param \WC_Order $order             Order.
+	 * @param string    $customer_id       Stripe Customer ID.
+	 * @param string    $payment_method_id Stripe PaymentMethod ID.
+	 */
+	private function store_subscription_payment_method( $order, $customer_id, $payment_method_id ) {
+		if ( ! function_exists( 'wcs_get_subscriptions_for_order' ) ) {
+			return;
+		}
+		foreach ( wcs_get_subscriptions_for_order( $order, array( 'order_type' => 'parent' ) ) as $subscription ) {
+			$subscription->update_meta_data( '_chicago_reader_account_b_customer_id', $customer_id );
+			$subscription->update_meta_data( '_chicago_reader_account_b_payment_method_id', $payment_method_id );
+			$subscription->save();
+		}
 	}
 
 	/**
@@ -237,10 +343,14 @@ class Gateway extends \WC_Payment_Gateway {
 
 	/**
 	 * Stripe webhook receiver. Registered at ?wc-api=chicago_reader_account_b.
+	 *
+	 * Backstop only — process_payment() already completes the order synchronously.
+	 * This exists because Stripe's own guidance is to never rely solely on the
+	 * client-side callback, since a customer can close the tab mid-confirmation.
 	 */
 	public function handle_webhook() {
-		$payload     = @file_get_contents( 'php://input' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		$sig_header  = isset( $_SERVER['HTTP_STRIPE_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_STRIPE_SIGNATURE'] ) ) : '';
+		$payload    = @file_get_contents( 'php://input' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		$sig_header = isset( $_SERVER['HTTP_STRIPE_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_STRIPE_SIGNATURE'] ) ) : '';
 
 		try {
 			$event = \Stripe\Webhook::constructEvent( $payload, $sig_header, $this->get_webhook_secret() );
@@ -249,10 +359,10 @@ class Gateway extends \WC_Payment_Gateway {
 			exit;
 		}
 
-		if ( 'checkout.session.completed' === $event->type || 'checkout.session.async_payment_succeeded' === $event->type ) {
-			$this->fulfill_session( $event->data->object );
-		} elseif ( 'checkout.session.async_payment_failed' === $event->type ) {
-			$this->fail_session( $event->data->object );
+		if ( 'payment_intent.succeeded' === $event->type ) {
+			$this->fulfill_payment_intent( $event->data->object );
+		} elseif ( 'charge.refunded' === $event->type ) {
+			$this->note_refund( $event->data->object );
 		}
 
 		status_header( 200 );
@@ -260,43 +370,31 @@ class Gateway extends \WC_Payment_Gateway {
 	}
 
 	/**
-	 * Mark the order paid and record the Stripe customer/payment method for future renewals.
+	 * Mark the order paid, if it isn't already.
 	 *
-	 * @param \Stripe\Checkout\Session $session Stripe Checkout Session.
+	 * @param \Stripe\PaymentIntent $payment_intent Stripe PaymentIntent.
 	 */
-	private function fulfill_session( $session ) {
-		$order_id = isset( $session->metadata->order_id ) ? absint( $session->metadata->order_id ) : 0;
+	private function fulfill_payment_intent( $payment_intent ) {
+		$order_id = isset( $payment_intent->metadata->order_id ) ? absint( $payment_intent->metadata->order_id ) : 0;
 		$order    = $order_id ? wc_get_order( $order_id ) : false;
 		if ( ! $order || $order->is_paid() ) {
 			return;
 		}
-
-		$stripe        = $this->get_stripe_client();
-		$payment_intent = $stripe->paymentIntents->retrieve( $session->payment_intent ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Stripe SDK's own camelCase property.
-
 		$order->payment_complete( $payment_intent->id );
 		$order->update_meta_data( '_chicago_reader_account_b_payment_intent_id', $payment_intent->id );
 		$order->save();
-
-		if ( $session->customer && $payment_intent->payment_method && function_exists( 'wcs_get_subscriptions_for_order' ) ) {
-			foreach ( wcs_get_subscriptions_for_order( $order, array( 'order_type' => 'parent' ) ) as $subscription ) {
-				$subscription->update_meta_data( '_chicago_reader_account_b_customer_id', $session->customer );
-				$subscription->update_meta_data( '_chicago_reader_account_b_payment_method_id', $payment_intent->payment_method );
-				$subscription->save();
-			}
-		}
 	}
 
 	/**
-	 * Mark the order failed after an async payment method fails.
+	 * Add an order note when Stripe reports a refund made directly in the Dashboard.
 	 *
-	 * @param \Stripe\Checkout\Session $session Stripe Checkout Session.
+	 * @param \Stripe\Charge $charge Stripe Charge.
 	 */
-	private function fail_session( $session ) {
-		$order_id = isset( $session->metadata->order_id ) ? absint( $session->metadata->order_id ) : 0;
+	private function note_refund( $charge ) {
+		$order_id = isset( $charge->metadata->order_id ) ? absint( $charge->metadata->order_id ) : 0;
 		$order    = $order_id ? wc_get_order( $order_id ) : false;
 		if ( $order ) {
-			$order->update_status( 'failed', 'Stripe reported the payment method failed.' );
+			$order->add_order_note( 'Stripe reported a refund on this order\'s Account B charge.' );
 		}
 	}
 
@@ -307,10 +405,10 @@ class Gateway extends \WC_Payment_Gateway {
 	 * @param \WC_Order $renewal_order    Renewal order.
 	 */
 	public function process_subscription_payment( $amount_to_charge, $renewal_order ) {
-		$subscriptions = wcs_get_subscriptions_for_order( $renewal_order, array( 'order_type' => 'any' ) );
-		$subscription  = reset( $subscriptions );
-		$customer_id   = $subscription ? $subscription->get_meta( '_chicago_reader_account_b_customer_id' ) : '';
-		$payment_method_id = $subscription ? $subscription->get_meta( '_chicago_reader_account_b_payment_method_id' ) : '';
+		$subscriptions      = wcs_get_subscriptions_for_order( $renewal_order, array( 'order_type' => 'any' ) );
+		$subscription       = reset( $subscriptions );
+		$customer_id        = $subscription ? $subscription->get_meta( '_chicago_reader_account_b_customer_id' ) : '';
+		$payment_method_id  = $subscription ? $subscription->get_meta( '_chicago_reader_account_b_payment_method_id' ) : '';
 
 		if ( ! $customer_id || ! $payment_method_id ) {
 			$renewal_order->update_status( 'failed', 'No saved Account B payment method on this subscription.' );
@@ -346,13 +444,13 @@ class Gateway extends \WC_Payment_Gateway {
 	 * @return bool|\WP_Error
 	 */
 	public function process_refund( $order_id, $amount = null, $reason = '' ) {
-		$order          = wc_get_order( $order_id );
-		$payment_intent_id = $order->get_meta( '_chicago_reader_account_b_payment_intent_id' );
+		$order              = wc_get_order( $order_id );
+		$payment_intent_id  = $order->get_meta( '_chicago_reader_account_b_payment_intent_id' );
 		if ( ! $payment_intent_id ) {
 			return new \WP_Error( 'chicago_reader_account_b_refund', 'No Account B payment intent recorded on this order.' );
 		}
 
-		$stripe    = $this->get_stripe_client();
+		$stripe      = $this->get_stripe_client();
 		$refund_args = array( 'payment_intent' => $payment_intent_id );
 		if ( null !== $amount ) {
 			$refund_args['amount'] = (int) round( $amount * 100 );
