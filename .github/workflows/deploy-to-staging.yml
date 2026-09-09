@@ -60,7 +60,7 @@ jobs:
               run: |
                 # Chrome is preinstalled on the runner; its package mirror must
                 # not prevent installation of this deployment dependency.
-                sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+                sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
                 sudo apt-get update -qq
                 sudo apt-get install -y -qq lftp
 
