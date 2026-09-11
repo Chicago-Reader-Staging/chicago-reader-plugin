@@ -279,6 +279,15 @@ class Gateway extends \WC_Payment_Gateway {
 			: '';
 
 		if ( ! $confirmation_token_id ) {
+			if ( function_exists( 'wc_get_logger' ) ) {
+				wc_get_logger()->error(
+					'Confirmation token was missing from the checkout request.',
+					array(
+						'source'   => $this->id,
+						'order_id' => $order->get_id(),
+					)
+				);
+			}
 			wc_add_notice( __( 'Payment could not be processed. Please try again.', 'chicago-reader' ), 'error' );
 			return array( 'result' => 'failure' );
 		}
@@ -299,7 +308,7 @@ class Gateway extends \WC_Payment_Gateway {
 					array( 'idempotency_key' => 'chicago-reader-confirm-' . $confirmation_token_id )
 				);
 			}
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			$this->log_error( 'Initial payment failed', $e, $order->get_id() );
 			wc_add_notice( __( 'Payment could not be processed. Please check your payment details and try again.', 'chicago-reader' ), 'error' );
 			return array( 'result' => 'failure' );
