@@ -76,7 +76,7 @@
 		}
 	);
 
-	$( document.body ).on(
+	$( 'form.checkout' ).on(
 		'checkout_place_order_' + chicagoReaderAccountB.gatewayId,
 		function () {
 			if ( confirmed || handlingAction ) {
