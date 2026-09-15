@@ -58,6 +58,15 @@ jobs:
             - name: Install Composer dependencies
               run: composer install --no-dev --optimize-autoloader
 
+            - name: Build Donation Stripe runtime configuration
+              run: php bin/build-donation-stripe-config.php
+              env:
+                  DONATION_STRIPE_CONFIG_MODE: LIVE
+                  DONATION_STRIPE_PUBLISHABLE_KEY: ${{ secrets[format('PROD_DONATION_STRIPE_LIVE_PUBLISHABLE_KEY_{0}', matrix.site_name)] }}
+                  DONATION_STRIPE_SECRET_KEY: ${{ secrets[format('PROD_DONATION_STRIPE_LIVE_SECRET_KEY_{0}', matrix.site_name)] }}
+                  DONATION_STRIPE_WEBHOOK_SECRET: ${{ secrets[format('PROD_DONATION_STRIPE_LIVE_WEBHOOK_SECRET_{0}', matrix.site_name)] }}
+                  DONATION_STRIPE_ACCOUNT_ID: ${{ secrets[format('PROD_DONATION_STRIPE_LIVE_ACCOUNT_ID_{0}', matrix.site_name)] }}
+
             - name: Install lftp
               run: |
                 # Chrome is preinstalled on the runner; its package mirror must

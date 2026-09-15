@@ -41,4 +41,18 @@ if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 
 // Initialize the plugin.
 
+$donation_stripe_runtime_config = __DIR__ . '/inc/Modules/DonationStripe/runtime-config.php';
+if ( file_exists( $donation_stripe_runtime_config ) ) {
+	require_once $donation_stripe_runtime_config;
+}
+
+add_action(
+	'before_woocommerce_init',
+	function() {
+		if ( class_exists( '\Automattic\WooCommerce\Utilities\FeaturesUtil' ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
+		}
+	}
+);
+
 Module_Loader::init();
