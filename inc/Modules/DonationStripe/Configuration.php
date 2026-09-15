@@ -139,8 +139,27 @@ final class Configuration {
 		}
 
 		try {
-			$account = self::client()->accounts->retrieve();
-			if ( ! hash_equals( self::expected_account_id(), (string) $account->id ) ) {
+			/*
+			 * Verify through WordPress HTTP rather than the global Stripe PHP
+			 * namespace. WooCommerce extensions can load another stripe-php
+			 * release before this plugin, making a harmless account lookup fail
+			 * even though this integration's credentials are valid.
+			 */
+			$response = wp_remote_get(
+				'https://api.stripe.com/v1/account',
+				array(
+					'headers' => array(
+						'Authorization'  => 'Bearer ' . self::secret_key(),
+						'Stripe-Version' => self::API_VERSION,
+					),
+					'timeout' => 3,
+				)
+			);
+			if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+				return false;
+			}
+			$account = json_decode( wp_remote_retrieve_body( $response ) );
+			if ( ! is_object( $account ) || empty( $account->id ) || ! hash_equals( self::expected_account_id(), (string) $account->id ) ) {
 				return false;
 			}
 			set_transient( $cache_key, 'verified', 10 * MINUTE_IN_SECONDS );
