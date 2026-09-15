@@ -116,9 +116,8 @@ final class Configuration {
 		try {
 			return new \Stripe\StripeClient(
 				array(
-					'api_key'             => self::secret_key(),
-					'stripe_version'      => self::API_VERSION,
-					'max_network_retries' => 2,
+					'api_key'        => self::secret_key(),
+					'stripe_version' => self::API_VERSION,
 				)
 			);
 		} catch ( \TypeError $error ) {
