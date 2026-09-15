@@ -2,6 +2,8 @@
 
 This module routes only products accepted by `Newspack\Donations::is_donation_product()` to a separate Stripe account. Normal WooCommerce products and existing subscriptions keep their original gateway. Mixed carts are rejected because WooCommerce orders have one payment gateway.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the plain-English system explanation, design decisions, security model, and official Newspack, WooCommerce, and Stripe references.
+
 ## Host configuration
 
 Define these outside WordPress options for both `TEST` and `LIVE` modes:
