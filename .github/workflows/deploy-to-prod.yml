@@ -67,6 +67,13 @@ jobs:
                   DONATION_STRIPE_WEBHOOK_SECRET: ${{ secrets[format('PROD_DONATION_STRIPE_LIVE_WEBHOOK_SECRET_{0}', matrix.site_name)] }}
                   DONATION_STRIPE_ACCOUNT_ID: ${{ secrets[format('PROD_DONATION_STRIPE_LIVE_ACCOUNT_ID_{0}', matrix.site_name)] }}
 
+            - name: Seal generated deployment artifact
+              run: |
+                  git add -A
+                  if ! git diff --cached --quiet; then
+                    git -c user.name=github-actions -c user.email=github-actions@github.com commit --no-verify -m "Prepare production deployment artifact"
+                  fi
+
             - name: Install lftp
               run: |
                 # Chrome is preinstalled on the runner; its package mirror must
