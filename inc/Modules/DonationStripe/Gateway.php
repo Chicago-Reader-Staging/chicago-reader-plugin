@@ -72,7 +72,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		}
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
-		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ), 99 );
 		add_action( 'woocommerce_api_' . $this->id, array( Webhook_Handler::class, 'receive' ) );
 		add_action( 'woocommerce_scheduled_subscription_payment_' . $this->id, array( $this, 'process_subscription_payment' ), 10, 2 );
 		add_action( 'woocommerce_subscription_failing_payment_method_updated_' . $this->id, array( $this, 'update_failing_payment_method' ), 10, 2 );
@@ -170,9 +170,15 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		if ( ! ( $account_page || $checkout ) || ! Configuration::is_complete() ) {
 			return;
 		}
-		wp_enqueue_script( 'stripe-js', 'https://js.stripe.com/v3/', array(), null, true ); // phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion -- Stripe requires loading its unversioned hosted SDK directly.
+		$stripe_handle = 'stripe';
+		if ( ! wp_script_is( $stripe_handle, 'registered' ) ) {
+			$stripe_handle = 'stripe-js';
+			wp_enqueue_script( $stripe_handle, 'https://js.stripe.com/v3/', array(), null, true ); // phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion -- Stripe requires loading its unversioned hosted SDK directly.
+		} else {
+			wp_enqueue_script( $stripe_handle );
+		}
 		$path = __DIR__ . '/assets/checkout.js';
-		wp_enqueue_script( 'stripe-chicago-reader-donation', plugins_url( 'assets/checkout.js', __FILE__ ), array( 'jquery', 'stripe-js' ), (string) filemtime( $path ), true );
+		wp_enqueue_script( 'stripe-chicago-reader-donation', plugins_url( 'assets/checkout.js', __FILE__ ), array( 'jquery', $stripe_handle ), (string) filemtime( $path ), true );
 		wp_localize_script(
 			'stripe-chicago-reader-donation',
 			'chicagoReaderDonationStripe',
