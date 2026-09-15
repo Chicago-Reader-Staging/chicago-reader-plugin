@@ -113,13 +113,23 @@ final class Configuration {
 			throw new \RuntimeException( 'Donation Stripe is not completely configured.' );
 		}
 
-		return new \Stripe\StripeClient(
-			array(
-				'api_key'             => self::secret_key(),
-				'stripe_version'      => self::API_VERSION,
-				'max_network_retries' => 2,
-			)
-		);
+		try {
+			return new \Stripe\StripeClient(
+				array(
+					'api_key'             => self::secret_key(),
+					'stripe_version'      => self::API_VERSION,
+					'max_network_retries' => 2,
+				)
+			);
+		} catch ( \TypeError $error ) {
+			/*
+			 * Some WordPress payment extensions eagerly load an older global
+			 * stripe-php client whose constructor accepts only the API key.
+			 * Stripe still applies the account's API version to these requests;
+			 * the direct account check above remains explicitly version-pinned.
+			 */
+			return new \Stripe\StripeClient( self::secret_key() );
+		}
 	}
 
 	/**
