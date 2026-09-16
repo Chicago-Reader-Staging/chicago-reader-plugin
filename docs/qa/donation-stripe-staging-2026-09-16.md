@@ -31,7 +31,9 @@ Do not use these test objects as proof of live-account behavior.
 
 ## Automated coverage actually present
 
-`composer test` passes **8 tests / 16 assertions** in `tests/unit/DonationStripePolicyTest.php`. These are stub-based policy tests covering basic cart classification, minor-unit conversion, gateway identity, and selected advertised capabilities. They do not boot WordPress, WooCommerce, Newspack, Stripe, or a browser. There is no integration or end-to-end suite in the repository. CI passing is not a full payment acceptance result.
+`composer test` now passes **24 tests / 38 assertions** in the three `tests/unit/DonationStripe*.php` files. These are stub-based policy tests covering cart classification and isolation, mixed-cart fail-closed behavior, variation IDs, order-pay routing, minor-unit conversion, gateway identity, selected advertised capabilities, lock ownership/recovery, and PaymentIntent-to-order fact matching. They do not boot WordPress, WooCommerce, Newspack, or Stripe.
+
+`npm run test:e2e` now contains a real-browser, no-charge staging smoke test in `tests/e2e/donation-checkout.spec.js`. It passed against staging using the password-gate environment variable. It clicks the Newspack monthly donation option, reaches checkout, checks the product/amount/card iframe, and asserts a single Stripe.js load. It stops before payment submission. This is one executable browser test, **not** the complete acceptance matrix. The available Chrome channel is required by `playwright.config.js`.
 
 ## Acceptance work not yet evidenced
 
