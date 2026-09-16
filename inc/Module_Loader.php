@@ -147,6 +147,25 @@ class Module_Loader {
 	 */
 	public static function load_modules() {
 		$active_modules = get_option( self::MODULES_OPTION_NAME, [] );
+		$legacy_module   = __DIR__ . '/Modules/StripeAccountB/module.php';
+		$donation_module = __DIR__ . '/Modules/DonationStripe/module.php';
+
+		// Preserve activation when the Account B experiment is replaced by the
+		// semantic Donation Stripe module. Module paths are stored as absolute
+		// values, so a directory rename otherwise silently disables the feature.
+		if ( is_array( $active_modules ) && in_array( $legacy_module, $active_modules, true ) ) {
+			$active_modules = array_values(
+				array_unique(
+					array_map(
+						function( $module ) use ( $legacy_module, $donation_module ) {
+							return $legacy_module === $module ? $donation_module : $module;
+						},
+						$active_modules
+					)
+				)
+			);
+			update_option( self::MODULES_OPTION_NAME, $active_modules, false );
+		}
 		if ( ! empty( $active_modules ) ) {
 			foreach ( $active_modules as $module ) {
 				if ( file_exists( $module ) ) {

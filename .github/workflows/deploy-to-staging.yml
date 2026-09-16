@@ -58,6 +58,22 @@ jobs:
             - name: Install Composer dependencies
               run: composer install --no-dev --optimize-autoloader
 
+            - name: Build Donation Stripe runtime configuration
+              run: php bin/build-donation-stripe-config.php
+              env:
+                  DONATION_STRIPE_CONFIG_MODE: TEST
+                  DONATION_STRIPE_PUBLISHABLE_KEY: ${{ secrets[format('STAGING_DONATION_STRIPE_TEST_PUBLISHABLE_KEY_{0}', matrix.site_name)] }}
+                  DONATION_STRIPE_SECRET_KEY: ${{ secrets[format('STAGING_DONATION_STRIPE_TEST_SECRET_KEY_{0}', matrix.site_name)] }}
+                  DONATION_STRIPE_WEBHOOK_SECRET: ${{ secrets[format('STAGING_DONATION_STRIPE_TEST_WEBHOOK_SECRET_{0}', matrix.site_name)] }}
+                  DONATION_STRIPE_ACCOUNT_ID: ${{ secrets[format('STAGING_DONATION_STRIPE_TEST_ACCOUNT_ID_{0}', matrix.site_name)] }}
+
+            - name: Seal generated deployment artifact
+              run: |
+                  git add -A
+                  if ! git diff --cached --quiet; then
+                    git -c user.name=github-actions -c user.email=github-actions@github.com commit --no-verify -m "Prepare staging deployment artifact"
+                  fi
+
             - name: Install lftp
               run: |
                 # Chrome is preinstalled on the runner; its package mirror must
@@ -68,13 +84,17 @@ jobs:
 
             - name: Ensure remote directory exists
               run: |
-                lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "
+                if ! lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "
                   set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'
                   set cmd:interactive no
                   cd /htdocs/wp-content/uploads
                   mkdir -p chicago-reader-plugin__new
                   quit
-                "
+                "; then
+                  # Newspack SFTP reports an error when mkdir targets an existing
+                  # directory, so verify that it is accessible before proceeding.
+                  lftp -u "$SFTP_USERNAME,$SFTP_PASSWORD" sftp://sftp.wp.com -e "set sftp:connect-program 'ssh -o StrictHostKeyChecking=no'; cd $PLUGIN_SOURCE; quit"
+                fi
 
             - name: FTP-Deploy-Action to a new folder ${{ matrix.site_name }}
               uses: Automattic/FTP-Deploy-Action@3.1.2

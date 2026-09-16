@@ -1,0 +1,4 @@
+{
+	"name": "Donation Stripe Gateway",
+	"description": "Routes only Newspack donation products to the independent donation Stripe account while preserving native Newspack checkout and WooCommerce subscription behavior."
+}
