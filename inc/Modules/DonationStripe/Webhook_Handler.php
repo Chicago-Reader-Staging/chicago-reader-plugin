@@ -90,9 +90,19 @@ final class Webhook_Handler {
 
 		$order = self::resolve_order( $event );
 		if ( ! $order ) {
-			// SetupIntent and PaymentMethod events can legitimately be completed by
-			// the authenticated My Account request and have no Woo order.
 			if ( 0 === strpos( (string) $event->type, 'setup_intent.' ) || 'payment_method.automatically_updated' === $event->type ) {
+				$lock = Lock::acquire( 'webhook_event_' . $event->id );
+				if ( ! $lock ) {
+					throw new \RuntimeException( 'Donation payment-method event is already being reconciled.' );
+				}
+				try {
+					if ( ! get_option( '_chicago_reader_donation_stripe_event_' . $event->id ) ) {
+						self::reconcile_without_order( $event );
+						add_option( '_chicago_reader_donation_stripe_event_' . $event->id, time(), '', false );
+					}
+				} finally {
+						Lock::release( 'webhook_event_' . $event->id, $lock );
+				}
 				update_option( '_chicago_reader_donation_stripe_last_webhook_processed', time(), false );
 				return;
 			}
@@ -152,6 +162,16 @@ final class Webhook_Handler {
 			}
 			return;
 		}
+		if ( 0 === strpos( (string) $event->type, 'setup_intent.' ) ) {
+			$intent = Configuration::client()->setupIntents->retrieve( $object->id );
+			if ( Gateway::ID !== $order->get_payment_method() || (string) $order->get_meta( Gateway::SETUP_INTENT_META ) !== (string) $intent->id ) {
+				throw new \UnexpectedValueException( 'SetupIntent does not match the donation order.' );
+			}
+			if ( 'succeeded' === $intent->status && 0 >= (float) $order->get_total() ) {
+				$gateway->complete_zero_setup_order( $order, $intent );
+			}
+			return;
+		}
 		if ( 0 === strpos( (string) $event->type, 'refund.' ) ) {
 			self::reconcile_refund( Configuration::client()->refunds->retrieve( $object->id ), $order );
 			return;
@@ -161,6 +181,52 @@ final class Webhook_Handler {
 			$order->update_meta_data( '_chicago_reader_donation_stripe_dispute_id', sanitize_text_field( (string) $object->id ) );
 			$order->update_meta_data( '_chicago_reader_donation_stripe_dispute_status', $status );
 			$order->add_order_note( sprintf( /* translators: %s: Stripe dispute status */ __( 'Stripe dispute status: %s. Review this dispute in the donation Stripe account.', 'chicago-reader' ), $status ) );
+		}
+	}
+
+	/** Reconcile account-level SetupIntents and automatic card updates. */
+	private static function reconcile_without_order( $event ) {
+		$object = $event->data->object;
+		if ( 0 === strpos( (string) $event->type, 'setup_intent.' ) ) {
+			$intent = Configuration::client()->setupIntents->retrieve( $object->id );
+			if ( 'succeeded' !== (string) $intent->status ) {
+				return;
+			}
+			$user_id = isset( $intent->metadata->wordpress_user_id ) ? absint( $intent->metadata->wordpress_user_id ) : 0;
+			$method_id = Gateway::provider_id( $intent->payment_method );
+			$customer_id = Gateway::provider_id( $intent->customer );
+			if ( ! $user_id || ! $method_id || ! $customer_id ) {
+				throw new \UnexpectedValueException( 'SetupIntent is missing customer or method identity.' );
+			}
+			self::verify_customer( $user_id, $customer_id );
+			$method = Configuration::client()->paymentMethods->retrieve( $method_id );
+			if ( ! hash_equals( $customer_id, Gateway::provider_id( $method->customer ) ) ) {
+				throw new \UnexpectedValueException( 'SetupIntent payment method belongs to another customer.' );
+			}
+			Token_Manager::upsert( $user_id, $method );
+			return;
+		}
+		$method = Configuration::client()->paymentMethods->retrieve( $object->id );
+		$customer_id = Gateway::provider_id( $method->customer );
+		if ( ! $customer_id ) {
+			return;
+		}
+		$customer = Configuration::client()->customers->retrieve( $customer_id );
+		$user_id = isset( $customer->metadata->wordpress_user_id ) ? absint( $customer->metadata->wordpress_user_id ) : 0;
+		if ( ! $user_id ) {
+			throw new \UnexpectedValueException( 'Updated card has no matching WordPress customer.' );
+		}
+		self::verify_customer( $user_id, $customer_id );
+		if ( Token_Manager::find_by_payment_method( $user_id, (string) $method->id ) ) {
+			Token_Manager::upsert( $user_id, $method );
+		}
+	}
+
+	/** Match a Stripe Customer to the current mode's Woo user mapping. */
+	private static function verify_customer( $user_id, $customer_id ) {
+		$key = '_chicago_reader_donation_stripe_customer_id_' . ( Configuration::is_test_mode() ? 'test' : 'live' );
+		if ( ! get_user_by( 'id', $user_id ) || ! hash_equals( (string) get_user_meta( $user_id, $key, true ), (string) $customer_id ) ) {
+			throw new \UnexpectedValueException( 'Stripe customer does not match the mode-scoped donor.' );
 		}
 	}
 

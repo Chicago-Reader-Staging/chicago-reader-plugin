@@ -26,7 +26,11 @@ final class Compatibility {
 	 * @return string[]
 	 */
 	public static function modal_gateway( $gateways ) {
-		$gateways[] = Gateway::ID;
+		// The modal changes checkout lifecycle and must be explicitly enabled only
+		// after the real Newspack/WCS browser acceptance run has passed.
+		if ( defined( 'CHICAGO_READER_DONATION_STRIPE_MODAL_VERIFIED' ) && true === CHICAGO_READER_DONATION_STRIPE_MODAL_VERIFIED ) {
+			$gateways[] = Gateway::ID;
+		}
 		return array_values( array_unique( $gateways ) );
 	}
 

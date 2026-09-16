@@ -76,6 +76,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		add_action( 'woocommerce_api_' . $this->id, array( Webhook_Handler::class, 'receive' ) );
 		add_action( 'woocommerce_scheduled_subscription_payment_' . $this->id, array( $this, 'process_subscription_payment' ), 10, 2 );
 		add_action( 'woocommerce_subscription_failing_payment_method_updated_' . $this->id, array( $this, 'update_failing_payment_method' ), 10, 2 );
+		add_action( 'woocommerce_checkout_subscription_created', array( $this, 'attach_created_subscription' ), 20, 2 );
 		add_filter( 'woocommerce_my_subscriptions_payment_method', array( Token_Manager::class, 'subscription_label' ), 10, 2 );
 		add_filter( 'woocommerce_subscription_payment_meta', array( $this, 'subscription_payment_meta' ), 10, 2 );
 		add_action( 'woocommerce_subscription_validate_payment_meta', array( $this, 'validate_subscription_payment_meta' ), 10, 2 );
@@ -88,14 +89,14 @@ class Gateway extends \WC_Payment_Gateway_CC {
 
 	/** {@inheritDoc} */
 	public function is_available() {
-		if ( $this->legacy || ! parent::is_available() || ! Configuration::is_complete() ) {
+		if ( $this->legacy || ! parent::is_available() || ! Configuration::new_payments_ready() ) {
 			return false;
 		}
 		if ( function_exists( 'is_add_payment_method_page' ) && is_add_payment_method_page() ) {
 			return is_user_logged_in() && 'yes' === $this->get_option( 'saved_methods', 'yes' );
 		}
 		if ( function_exists( 'wcs_is_payment_change' ) && wcs_is_payment_change() ) {
-			return is_user_logged_in();
+			return is_user_logged_in() && Routing::ALL === Routing::request_state();
 		}
 		return Routing::ALL === Routing::request_state();
 	}
@@ -260,8 +261,8 @@ class Gateway extends \WC_Payment_Gateway_CC {
 
 	/** {@inheritDoc} */
 	public function validate_fields() {
-		if ( ! Configuration::verify_account() ) {
-			wc_add_notice( __( 'Donation payments are temporarily unavailable because the payment account could not be verified.', 'chicago-reader' ), 'error' );
+		if ( ! Configuration::new_payments_ready() ) {
+			wc_add_notice( __( 'Donation payments are temporarily unavailable because the payment account or scheduler could not be verified.', 'chicago-reader' ), 'error' );
 			return false;
 		}
 		return true;
@@ -270,7 +271,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 	/** {@inheritDoc} */
 	public function process_payment( $order_id ) {
 		$order = wc_get_order( $order_id );
-		if ( ! $order || ! Routing::is_donation_order( $order ) || ! Configuration::verify_account() ) {
+		if ( ! $order || ! Routing::is_donation_order( $order ) || ! Configuration::new_payments_ready() ) {
 			wc_add_notice( __( 'The donation could not be securely routed. No charge was attempted.', 'chicago-reader' ), 'error' );
 			return array( 'result' => 'failure' );
 		}
@@ -307,6 +308,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 				$order->update_meta_data( Token_Manager::SUBSCRIPTION_TOKEN_META, $token->get_id() );
 				if ( is_a( $order, 'WC_Subscription' ) ) {
 					$order->set_payment_method( self::ID );
+					Token_Manager::associate_token( $order, $token->get_id() );
 					$order->save();
 				} else {
 					Token_Manager::attach_to_order_subscriptions( $order, $token->get_id() );
@@ -372,6 +374,13 @@ class Gateway extends \WC_Payment_Gateway_CC {
 			throw new \RuntimeException( 'Unexpected PaymentIntent status.' );
 		} catch ( \Throwable $error ) {
 			$this->log_error( 'Initial donation payment failed', $error, $order_id );
+			if ( 'yes' === $order->get_meta( '_chicago_reader_donation_stripe_tokenization_failed' ) ) {
+				wc_add_notice( __( 'Your payment was received, but we could not finish setting up automatic renewals. Please contact support about this donation.', 'chicago-reader' ), 'error' );
+				return array(
+					'result'   => 'success',
+					'redirect' => $this->get_return_url( $order ),
+				);
+			}
 			wc_add_notice( __( 'Payment could not be completed. Please check your payment details and try again.', 'chicago-reader' ), 'error' );
 			return array( 'result' => 'failure' );
 		} finally {
@@ -384,7 +393,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 	 */
 	public function create_setup_intent() {
 		check_ajax_referer( 'chicago_reader_donation_stripe_setup', 'nonce' );
-		if ( ! is_user_logged_in() || ! Configuration::verify_account() ) {
+		if ( ! is_user_logged_in() || ! Configuration::new_payments_ready() ) {
 			wp_send_json_error( array( 'message' => __( 'The payment account could not be verified.', 'chicago-reader' ) ), 403 );
 		}
 		try {
@@ -415,7 +424,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 
 	/** {@inheritDoc} */
 	public function add_payment_method() {
-		if ( ! is_user_logged_in() || ! Configuration::verify_account() ) {
+		if ( ! is_user_logged_in() || ! Configuration::new_payments_ready() ) {
 			return array( 'result' => 'failure' );
 		}
 		try {
@@ -508,7 +517,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 			return;
 		}
 		try {
-			if ( ! Configuration::verify_account() ) {
+			if ( ! Configuration::has_distinct_store_account() || ! Configuration::verify_account() ) {
 				throw new \RuntimeException( 'Stripe account verification failed.' );
 			}
 			$subscriptions = wcs_get_subscriptions_for_order( $order, array( 'order_type' => 'any' ) );
@@ -577,6 +586,21 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		$token_id = $renewal_order->get_meta( Token_Manager::SUBSCRIPTION_TOKEN_META );
 		if ( Token_Manager::get_valid( $token_id, $subscription->get_customer_id() ) ) {
 			$subscription->update_meta_data( Token_Manager::SUBSCRIPTION_TOKEN_META, absint( $token_id ) );
+			Token_Manager::associate_token( $subscription, $token_id );
+			$subscription->save();
+		}
+	}
+
+	/** Attach a previously verified token if Subscriptions creates its record after payment processing. */
+	public function attach_created_subscription( $subscription, $order ) {
+		if ( self::ID !== $order->get_payment_method() || ! Routing::is_donation_order( $subscription ) ) {
+			return;
+		}
+		$token_id = absint( $order->get_meta( Token_Manager::SUBSCRIPTION_TOKEN_META ) );
+		if ( $token_id && Token_Manager::get_valid( $token_id, $subscription->get_customer_id() ) ) {
+			$subscription->set_payment_method( self::ID );
+			$subscription->update_meta_data( Token_Manager::SUBSCRIPTION_TOKEN_META, $token_id );
+			Token_Manager::associate_token( $subscription, $token_id );
 			$subscription->save();
 		}
 	}
@@ -681,9 +705,6 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		if ( ! $this->payment_intent_matches_order( $intent, $order ) || 'succeeded' !== $intent->status ) {
 			return;
 		}
-		if ( ! $order->is_paid() ) {
-			$order->payment_complete( $intent->id );
-		}
 		$order->update_meta_data( self::PAYMENT_INTENT_META, $intent->id );
 		$order->update_meta_data( self::ACCOUNT_META, Configuration::expected_account_id() );
 		$order->update_meta_data( self::MODE_META, Configuration::is_test_mode() ? 'test' : 'live' );
@@ -691,17 +712,41 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		if ( $this->order_needs_token( $order ) && $intent->payment_method && $order->get_customer_id() ) {
 			try {
 				$method = Configuration::client()->paymentMethods->retrieve( self::provider_id( $intent->payment_method ) );
+				if ( ! hash_equals( $this->customer_id_for_user( $order->get_customer_id() ), self::provider_id( $method->customer ) ) ) {
+					throw new \UnexpectedValueException( 'Payment method customer mismatch.' );
+				}
 				$token  = Token_Manager::upsert( $order->get_customer_id(), $method );
 				$order->update_meta_data( Token_Manager::SUBSCRIPTION_TOKEN_META, $token->get_id() );
+				Token_Manager::associate_token( $order, $token->get_id() );
 				$order->delete_meta_data( '_chicago_reader_donation_stripe_tokenization_failed' );
-				Token_Manager::attach_to_order_subscriptions( $order, $token->get_id() );
+				if ( function_exists( 'wcs_order_contains_subscription' ) && wcs_order_contains_subscription( $order ) && ! Token_Manager::attach_to_order_subscriptions( $order, $token->get_id() ) ) {
+					throw new \RuntimeException( 'The donation subscription was not ready to store its renewal method.' );
+				}
 			} catch ( \Throwable $error ) {
 				$order->update_meta_data( '_chicago_reader_donation_stripe_tokenization_failed', 'yes' );
-				$order->add_order_note( __( 'The donation was paid, but its reusable payment method could not be stored. Review before the next renewal.', 'chicago-reader' ) );
+				if ( $order->is_paid() ) {
+					$order->add_order_note( __( 'Automatic renewal setup requires reconciliation.', 'chicago-reader' ) );
+				} else {
+					$order->update_status( 'on-hold', __( 'Stripe payment succeeded; automatic renewal setup requires reconciliation.', 'chicago-reader' ) );
+				}
+				$order->save();
 				$this->log_error( 'Donation tokenization after payment failed', $error, $order->get_id() );
+				throw $error;
 			}
+		} elseif ( $this->order_needs_token( $order ) ) {
+			$order->update_meta_data( '_chicago_reader_donation_stripe_tokenization_failed', 'yes' );
+			if ( $order->is_paid() ) {
+				$order->add_order_note( __( 'No reusable renewal method was returned by Stripe.', 'chicago-reader' ) );
+			} else {
+				$order->update_status( 'on-hold', __( 'Stripe payment succeeded; no reusable renewal method was returned.', 'chicago-reader' ) );
+			}
+			$order->save();
+			throw new \UnexpectedValueException( 'Reusable renewal method missing from succeeded PaymentIntent.' );
 		}
 		$order->save();
+		if ( ! $order->is_paid() ) {
+			$order->payment_complete( $intent->id );
+		}
 	}
 
 	/**
@@ -823,6 +868,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		$order->save();
 		if ( is_a( $order, 'WC_Subscription' ) ) {
 			$order->update_meta_data( Token_Manager::SUBSCRIPTION_TOKEN_META, $token->get_id() );
+			Token_Manager::associate_token( $order, $token->get_id() );
 			$order->save();
 		} else {
 			Token_Manager::attach_to_order_subscriptions( $order, $token->get_id() );
@@ -877,7 +923,7 @@ class Gateway extends \WC_Payment_Gateway_CC {
 	}
 
 	/** Finish a verified zero-total order and store its reusable method. */
-	private function complete_zero_setup_order( $order, $intent ) {
+	public function complete_zero_setup_order( $order, $intent ) {
 		if ( 'succeeded' !== (string) $intent->status || ! hash_equals( (string) $order->get_meta( self::SETUP_INTENT_META ), (string) $intent->id ) ) {
 			throw new \UnexpectedValueException( 'SetupIntent does not match the zero-total order.' );
 		}
@@ -890,7 +936,10 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		$method = Configuration::client()->paymentMethods->retrieve( self::provider_id( $intent->payment_method ) );
 		$token  = Token_Manager::upsert( $order->get_customer_id(), $method );
 		$order->update_meta_data( Token_Manager::SUBSCRIPTION_TOKEN_META, $token->get_id() );
-		Token_Manager::attach_to_order_subscriptions( $order, $token->get_id() );
+		Token_Manager::associate_token( $order, $token->get_id() );
+		if ( function_exists( 'wcs_order_contains_subscription' ) && wcs_order_contains_subscription( $order ) && ! Token_Manager::attach_to_order_subscriptions( $order, $token->get_id() ) ) {
+			throw new \RuntimeException( 'The zero-total subscription was not ready for its renewal method.' );
+		}
 		$order->payment_complete();
 		$order->save();
 	}

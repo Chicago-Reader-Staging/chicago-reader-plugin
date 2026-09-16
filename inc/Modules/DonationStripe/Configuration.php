@@ -18,6 +18,11 @@ defined( 'ABSPATH' ) || exit;
 final class Configuration {
 
 	const API_VERSION = '2026-08-26.dahlia';
+	// Independently verified against the Reader Institute Stripe test account.
+	// This must not be sourced from the same deployment secrets as the API key.
+	const APPROVED_TEST_ACCOUNT_ID = 'acct_1F24k4LAprqx9n8w';
+	// Production remains unavailable until its account identity is reviewed.
+	const APPROVED_LIVE_ACCOUNT_ID = '';
 
 	/**
 	 * Whether the gateway settings select test mode.
@@ -62,6 +67,65 @@ final class Configuration {
 	}
 
 	/**
+	 * Whether an account ID is independently approved for the selected mode.
+	 *
+	 * @param string $account_id Stripe account ID.
+	 * @param bool   $test_mode  Whether the request uses test mode.
+	 * @return bool
+	 */
+	public static function is_approved_account_id( $account_id, $test_mode ) {
+		$approved = $test_mode ? self::APPROVED_TEST_ACCOUNT_ID : self::APPROVED_LIVE_ACCOUNT_ID;
+		return '' !== $approved && hash_equals( $approved, (string) $account_id );
+	}
+
+	/** The deployment account ID must match an independently approved identity. */
+	public static function account_id_is_approved() {
+		return self::is_approved_account_id( self::expected_account_id(), self::is_test_mode() );
+	}
+
+	/**
+	 * Never accept a new donation charge in the store's regular Stripe account.
+	 * Use the same account cache that WooCommerce Stripe 11.0.0 uses in its
+	 * System Status report. An unknown store account fails closed.
+	 *
+	 * @return bool
+	 */
+	public static function has_distinct_store_account() {
+		if ( ! self::account_id_is_approved() ) {
+			return false;
+		}
+		if ( ! class_exists( '\\WC_Stripe' ) || ! method_exists( '\\WC_Stripe', 'get_instance' ) ) {
+			return false;
+		}
+		try {
+			$stripe = \WC_Stripe::get_instance();
+			if ( ! isset( $stripe->account ) || ! method_exists( $stripe->account, 'get_cached_account_data' ) ) {
+				return false;
+			}
+			// Compare like-for-like modes, even when the store gateway's UI is
+			// currently switched to a different mode.
+			$account = $stripe->account->get_cached_account_data( self::is_test_mode() ? 'test' : 'live' );
+			$id      = is_array( $account ) && isset( $account['id'] ) ? (string) $account['id'] : '';
+			return 0 === strpos( $id, 'acct_' ) && ! hash_equals( $id, self::expected_account_id() );
+		} catch ( \Throwable $error ) {
+			return false;
+		}
+	}
+
+	/** @return bool */
+	public static function scheduler_healthy() {
+		$last_run = absint( get_option( '_chicago_reader_donation_stripe_last_scheduler_canary', 0 ) );
+		return function_exists( 'as_enqueue_async_action' )
+			&& $last_run > time() - DAY_IN_SECONDS
+			&& $last_run <= time();
+	}
+
+	/** New payment operations require both account isolation and a working queue. */
+	public static function new_payments_ready() {
+		return self::is_complete() && self::has_distinct_store_account() && self::scheduler_healthy() && self::verify_account();
+	}
+
+	/**
 	 * Live payments need an explicit host-side switch and approved hostname.
 	 *
 	 * @return bool
@@ -96,6 +160,7 @@ final class Configuration {
 		$prefix      = self::is_test_mode() ? '_test_' : '_live_';
 
 		return self::live_mode_allowed()
+			&& self::account_id_is_approved()
 			&& 0 === strpos( $publishable, 'pk' . $prefix )
 			&& 0 === strpos( $secret, 'sk' . $prefix )
 			&& 0 === strpos( $webhook, 'whsec_' )
@@ -184,11 +249,25 @@ final class Configuration {
 	 * @return string
 	 */
 	public static function status_html() {
+		if ( ! self::account_id_is_approved() ) {
+			return '<strong style="color:#b32d2e">' . esc_html__( 'Blocked: the configured donation Stripe account is not independently approved for this mode.', 'chicago-reader' ) . '</strong>';
+		}
 		if ( ! self::is_complete() ) {
 			return '<strong style="color:#b32d2e">' . esc_html__( 'Not ready: required host-injected configuration is missing or mode-invalid.', 'chicago-reader' ) . '</strong>';
 		}
-		$status = self::verify_account() ? __( 'Connected to the expected Stripe account.', 'chicago-reader' ) : __( 'Blocked: the API key could not be verified against the expected Stripe account.', 'chicago-reader' );
-		$color  = self::verify_account() ? '#008a20' : '#b32d2e';
+		$account_verified = self::verify_account();
+		$distinct         = self::has_distinct_store_account();
+		$scheduler_ok     = self::scheduler_healthy();
+		if ( ! $account_verified ) {
+			$status = __( 'Blocked: the API key could not be verified against the expected Stripe account.', 'chicago-reader' );
+		} elseif ( ! $distinct ) {
+			$status = __( 'Blocked: the donation account must be different from the regular WooCommerce Stripe account.', 'chicago-reader' );
+		} elseif ( ! $scheduler_ok ) {
+			$status = __( 'Blocked: the Action Scheduler canary has not run recently.', 'chicago-reader' );
+		} else {
+			$status = __( 'Ready for new donation payments.', 'chicago-reader' );
+		}
+		$color = $account_verified && $distinct && $scheduler_ok ? '#008a20' : '#b32d2e';
 		$received  = absint( get_option( '_chicago_reader_donation_stripe_last_webhook_received', 0 ) );
 		$processed = absint( get_option( '_chicago_reader_donation_stripe_last_webhook_processed', 0 ) );
 		$canary    = absint( get_option( '_chicago_reader_donation_stripe_last_scheduler_canary', 0 ) );

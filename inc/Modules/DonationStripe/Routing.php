@@ -77,16 +77,20 @@ final class Routing {
 	 * @return string
 	 */
 	public static function request_state() {
-		if ( function_exists( 'WC' ) && WC()->cart && ! WC()->cart->is_empty() ) {
-			return self::cart_state();
-		}
 		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url( 'order-pay' ) ) {
 			global $wp;
 			$order_id = ! empty( $wp->query_vars['order-pay'] ) ? absint( $wp->query_vars['order-pay'] ) : 0;
 			$order    = $order_id ? wc_get_order( $order_id ) : false;
-			if ( $order ) {
-				return self::is_donation_order( $order ) ? self::ALL : self::NONE;
+			if ( ! $order ) {
+				return self::MIXED;
 			}
+			if ( Gateway::ID === $order->get_payment_method() ) {
+				return self::is_donation_order( $order ) ? self::ALL : self::MIXED;
+			}
+			return Legacy_Gateway::ID === $order->get_payment_method() ? self::MIXED : self::NONE;
+		}
+		if ( function_exists( 'WC' ) && WC()->cart && ! WC()->cart->is_empty() ) {
+			return self::cart_state();
 		}
 		return self::NONE;
 	}
@@ -109,6 +113,9 @@ final class Routing {
 	 * Block carts that would require payments to two independent accounts.
 	 */
 	public static function validate_cart() {
+		if ( function_exists( 'is_wc_endpoint_url' ) && is_wc_endpoint_url( 'order-pay' ) ) {
+			return;
+		}
 		if ( self::MIXED !== self::cart_state() ) {
 			return;
 		}
@@ -130,8 +137,7 @@ final class Routing {
 		}
 
 		$account_add = function_exists( 'is_add_payment_method_page' ) && is_add_payment_method_page();
-		$wcs_change  = function_exists( 'wcs_is_payment_change' ) && wcs_is_payment_change();
-		if ( $account_add || $wcs_change ) {
+		if ( $account_add ) {
 			unset( $gateways[ Legacy_Gateway::ID ] );
 			return $gateways;
 		}

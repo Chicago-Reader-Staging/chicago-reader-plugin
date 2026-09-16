@@ -3,6 +3,7 @@
 
 namespace {
 	define( 'ABSPATH', __DIR__ );
+	define( 'DAY_IN_SECONDS', 86400 );
 	$GLOBALS['cr_test_options'] = array();
 	$GLOBALS['cr_test_notices'] = array();
 	$GLOBALS['cr_test_is_admin'] = false;
@@ -11,7 +12,33 @@ namespace {
 	$GLOBALS['cr_test_orders'] = array();
 	$GLOBALS['cr_test_user_meta'] = array();
 	$GLOBALS['cr_test_subscriptions'] = array();
-	define( 'CHICAGO_READER_DONATION_STRIPE_TEST_ACCOUNT_ID', 'acct_donation_test' );
+	define( 'CHICAGO_READER_DONATION_STRIPE_TEST_ACCOUNT_ID', 'acct_1F24k4LAprqx9n8w' );
+
+	class WC_Stripe_Account_Test_Double {
+		public $id = 'acct_store_test';
+		public $last_mode = null;
+
+		public function get_cached_account_data( $mode = null ) {
+			$this->last_mode = $mode;
+			return $this->id ? array( 'id' => $this->id ) : array();
+		}
+	}
+
+	class WC_Stripe {
+		public $account;
+		private static $instance;
+
+		private function __construct() {
+			$this->account = new WC_Stripe_Account_Test_Double();
+		}
+
+		public static function get_instance() {
+			if ( ! self::$instance ) {
+				self::$instance = new self();
+			}
+			return self::$instance;
+		}
+	}
 
 	function absint( $value ) {
 		return abs( (int) $value );
@@ -79,6 +106,10 @@ namespace {
 		return $GLOBALS['cr_test_subscriptions'][ $order->get_id() ] ?? array();
 	}
 
+	function wcs_get_users_subscriptions( $user_id ) {
+		return $GLOBALS['cr_test_user_subscriptions'][ $user_id ] ?? array();
+	}
+
 	function is_wc_endpoint_url( $endpoint ) {
 		return 'order-pay' === $endpoint && ! empty( $GLOBALS['cr_test_order_pay'] );
 	}
@@ -86,6 +117,10 @@ namespace {
 	function add_action() {}
 
 	function add_filter() {}
+
+	function as_enqueue_async_action() {
+		return 1;
+	}
 
 	function __( $text ) {
 		return $text;
@@ -176,4 +211,5 @@ namespace {
 	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Legacy_Gateway.php';
 	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Lock.php';
 	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Token_Manager.php';
+	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Compatibility.php';
 }

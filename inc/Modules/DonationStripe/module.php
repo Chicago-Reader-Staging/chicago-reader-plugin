@@ -31,7 +31,9 @@ function migrate_settings() {
 		update_option(
 			$new_key,
 			array(
-				'enabled'       => $old['enabled'] ?? 'no',
+				// The new gateway must be opted into explicitly after account and
+				// scheduler verification; an enabled prototype is not approval.
+				'enabled'       => 'no',
 				'testmode'      => $old['testmode'] ?? 'yes',
 				'title'         => __( 'Credit or debit card', 'chicago-reader' ),
 				'description'   => '',
@@ -64,21 +66,22 @@ Webhook_Handler::init();
 Compatibility::init();
 Token_Manager::init();
 
-/** Queue a small canary so settings can prove the host runner executes jobs. */
+/** Keep a recurring canary so readiness reflects an operating host runner. */
 function schedule_action_scheduler_canary() {
-	if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_has_scheduled_action' ) ) {
+	$hook = 'chicago_reader_donation_stripe_scheduler_canary_recurring';
+	if ( ! function_exists( 'as_schedule_recurring_action' ) || ! function_exists( 'as_has_scheduled_action' ) ) {
 		return;
 	}
-	$last_run = absint( get_option( '_chicago_reader_donation_stripe_last_scheduler_canary', 0 ) );
-	if ( $last_run > time() - DAY_IN_SECONDS || as_has_scheduled_action( 'chicago_reader_donation_stripe_scheduler_canary', array(), Webhook_Handler::GROUP ) ) {
+	if ( as_has_scheduled_action( $hook, array(), Webhook_Handler::GROUP ) ) {
 		return;
 	}
-	as_schedule_single_action( time() + MINUTE_IN_SECONDS, 'chicago_reader_donation_stripe_scheduler_canary', array(), Webhook_Handler::GROUP, true );
+	as_schedule_recurring_action( time() + MINUTE_IN_SECONDS, 12 * HOUR_IN_SECONDS, $hook, array(), Webhook_Handler::GROUP, true );
 }
 add_action( 'admin_init', __NAMESPACE__ . '\schedule_action_scheduler_canary' );
+add_action( 'action_scheduler_ensure_recurring_actions', __NAMESPACE__ . '\schedule_action_scheduler_canary' );
 
 /** Record successful execution without storing request or customer data. */
 function record_action_scheduler_canary() {
 	update_option( '_chicago_reader_donation_stripe_last_scheduler_canary', time(), false );
 }
-add_action( 'chicago_reader_donation_stripe_scheduler_canary', __NAMESPACE__ . '\record_action_scheduler_canary' );
+add_action( 'chicago_reader_donation_stripe_scheduler_canary_recurring', __NAMESPACE__ . '\record_action_scheduler_canary' );

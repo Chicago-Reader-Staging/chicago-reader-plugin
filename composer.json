@@ -21,7 +21,8 @@
 			"composer install"
 		],
 		"lint": "./vendor/bin/phpcs --standard=phpcs.xml -n",
-		"test": "./vendor/bin/phpunit"
+		"test": "./vendor/bin/phpunit",
+		"test:integration": "./vendor/bin/phpunit -c phpunit.integration.xml.dist"
 	},
 	"autoload": {
 		"psr-4": {

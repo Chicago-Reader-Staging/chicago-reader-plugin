@@ -29,4 +29,6 @@ The webhook URL is shown in WooCommerce payment settings. Register it at the pin
 
 The module must stay disabled in production until Action Scheduler, account identity, webhook delivery, wallet-domain registration, and the full staging matrix are green.
 
+New checkouts fail closed when the donation account ID equals the official WooCommerce Stripe account ID shown in WooCommerce → Status, when that store account cannot be read, or when the Donation Stripe Action Scheduler canary has not run within 24 hours. This protects new charges but does not replace configuring the separate account's own test keys and webhook secret. Existing webhook and refund reconciliation remains available while the new-checkout gate is closed. Never manually run the canary to claim the hosting scheduler works; wait for it to execute naturally and inspect its Action Scheduler log.
+
 The deployment workflows can generate these constants from repository secrets. For the staging matrix site name, configure `STAGING_DONATION_STRIPE_TEST_PUBLISHABLE_KEY_<SITE>`, `STAGING_DONATION_STRIPE_TEST_SECRET_KEY_<SITE>`, `STAGING_DONATION_STRIPE_TEST_WEBHOOK_SECRET_<SITE>`, and `STAGING_DONATION_STRIPE_TEST_ACCOUNT_ID_<SITE>`. Production uses the corresponding `PROD_DONATION_STRIPE_LIVE_*_<SITE>` names. Empty sets leave the gateway disabled; partial or mode-mismatched sets fail deployment.

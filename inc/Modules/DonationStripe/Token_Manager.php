@@ -204,11 +204,11 @@ final class Token_Manager {
 			return;
 		}
 		foreach ( wcs_get_users_subscriptions( $user_id ) as $subscription ) {
-			if ( ! $subscription->has_status( array( 'active', 'on-hold', 'pending-cancel' ) ) || ! Routing::is_donation_order( $subscription ) ) {
+			if ( ! $subscription->has_status( array( 'active', 'on-hold', 'pending-cancel' ) ) || Gateway::ID !== $subscription->get_payment_method() || ! Routing::is_donation_order( $subscription ) ) {
 				continue;
 			}
-			$subscription->set_payment_method( Gateway::ID );
 			$subscription->update_meta_data( self::SUBSCRIPTION_TOKEN_META, absint( $token_id ) );
+			self::associate_token( $subscription, $token_id );
 			$subscription->save();
 		}
 	}
@@ -260,15 +260,47 @@ final class Token_Manager {
 	 *
 	 * @param \WC_Order $order Order.
 	 * @param int       $token_id Token ID.
+	 * @return int Number of related subscriptions updated.
+	 * @throws \UnexpectedValueException Invalid token or unrelated subscription.
 	 */
 	public static function attach_to_order_subscriptions( $order, $token_id ) {
-		if ( ! function_exists( 'wcs_get_subscriptions_for_order' ) ) {
-			return;
+		if ( ! function_exists( 'wcs_get_subscriptions_for_order' ) || ! self::get_valid( $token_id, $order->get_customer_id() ) ) {
+			throw new \UnexpectedValueException( 'The renewal payment method is not valid for this order.' );
 		}
+		$attached = 0;
 		foreach ( wcs_get_subscriptions_for_order( $order, array( 'order_type' => 'any' ) ) as $subscription ) {
+			if ( ! Routing::is_donation_order( $subscription ) || absint( $subscription->get_customer_id() ) !== absint( $order->get_customer_id() ) || ! in_array( $subscription->get_payment_method(), array( '', Gateway::ID ), true ) ) {
+				throw new \UnexpectedValueException( 'The related subscription is not owned by this donor.' );
+			}
 			$subscription->set_payment_method( Gateway::ID );
 			$subscription->update_meta_data( self::SUBSCRIPTION_TOKEN_META, absint( $token_id ) );
+			self::associate_token( $subscription, $token_id );
 			$subscription->save();
+			++$attached;
+		}
+		return $attached;
+	}
+
+	/**
+	 * Associate a validated Woo token with an order's native token list.
+	 *
+	 * @param \WC_Order $subscription Donation order or subscription.
+	 * @param int       $token_id     Woo payment token ID.
+	 * @throws \UnexpectedValueException Invalid token.
+	 * @throws \RuntimeException WooCommerce refused the token association.
+	 */
+	public static function associate_token( $subscription, $token_id ) {
+		$token = self::get_valid( $token_id, $subscription->get_customer_id() );
+		if ( ! $token ) {
+			throw new \UnexpectedValueException( 'Subscription payment token is not valid.' );
+		}
+		foreach ( $subscription->get_payment_tokens() as $existing ) {
+			if ( absint( $existing->get_id() ) === absint( $token_id ) ) {
+				return;
+			}
+		}
+		if ( ! $subscription->add_payment_token( $token ) ) {
+			throw new \RuntimeException( 'WooCommerce could not associate the payment token with the subscription.' );
 		}
 	}
 
