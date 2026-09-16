@@ -172,11 +172,9 @@ class Gateway extends \WC_Payment_Gateway_CC {
 		}
 		$stripe_handle = 'stripe';
 		if ( ! wp_script_is( $stripe_handle, 'registered' ) ) {
-			$stripe_handle = 'stripe-js';
-			wp_enqueue_script( $stripe_handle, 'https://js.stripe.com/v3/', array(), null, true ); // phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion -- Stripe requires loading its unversioned hosted SDK directly.
-		} else {
-			wp_enqueue_script( $stripe_handle );
+			wp_register_script( $stripe_handle, 'https://js.stripe.com/v3/', array(), null, true ); // phpcs:ignore WordPress.WP.EnqueuedResourceParameters.MissingVersion -- Stripe requires loading its unversioned hosted SDK directly.
 		}
+		wp_enqueue_script( $stripe_handle );
 		$path = __DIR__ . '/assets/checkout.js';
 		wp_enqueue_script( 'stripe-chicago-reader-donation', plugins_url( 'assets/checkout.js', __FILE__ ), array( 'jquery', $stripe_handle ), (string) filemtime( $path ), true );
 		wp_localize_script(
