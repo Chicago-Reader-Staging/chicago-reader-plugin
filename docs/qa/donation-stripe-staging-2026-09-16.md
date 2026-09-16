@@ -31,7 +31,7 @@ Do not use these test objects as proof of live-account behavior.
 
 ## Automated coverage actually present
 
-`composer test` now passes **24 tests / 38 assertions** in the three `tests/unit/DonationStripe*.php` files. These are stub-based policy tests covering cart classification and isolation, mixed-cart fail-closed behavior, variation IDs, order-pay routing, minor-unit conversion, gateway identity, selected advertised capabilities, lock ownership/recovery, and PaymentIntent-to-order fact matching. They do not boot WordPress, WooCommerce, Newspack, or Stripe.
+`composer test` now passes **32 tests / 56 assertions** in the four `tests/unit/DonationStripe*.php` files. These are stub-based policy tests covering cart classification and isolation, mixed-cart fail-closed behavior, variation IDs, order-pay routing, minor-unit conversion, gateway identity, selected advertised capabilities, lock ownership/recovery, PaymentIntent-to-order fact matching, and token owner/account/mode isolation plus subscription attachment. They do not boot WordPress, WooCommerce, Newspack, or Stripe. The subscription attachment unit test does **not** clear the observed “Via Manual Renewal” contradiction; only a real WCS renewal test can do that.
 
 `npm run test:e2e` now contains a real-browser, no-charge staging smoke test in `tests/e2e/donation-checkout.spec.js`. It passed against staging using the password-gate environment variable. It clicks the Newspack monthly donation option, reaches checkout, checks the product/amount/card iframe, and asserts a single Stripe.js load. It stops before payment submission. This is one executable browser test, **not** the complete acceptance matrix. The available Chrome channel is required by `playwright.config.js`.
 

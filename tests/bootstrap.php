@@ -9,6 +9,9 @@ namespace {
 	$GLOBALS['cr_test_ajax'] = false;
 	$GLOBALS['cr_test_wc'] = null;
 	$GLOBALS['cr_test_orders'] = array();
+	$GLOBALS['cr_test_user_meta'] = array();
+	$GLOBALS['cr_test_subscriptions'] = array();
+	define( 'CHICAGO_READER_DONATION_STRIPE_TEST_ACCOUNT_ID', 'acct_donation_test' );
 
 	function absint( $value ) {
 		return abs( (int) $value );
@@ -59,6 +62,23 @@ namespace {
 		return $GLOBALS['cr_test_orders'][ $id ] ?? false;
 	}
 
+	function get_user_meta( $user_id, $key ) {
+		return $GLOBALS['cr_test_user_meta'][ $user_id ][ $key ] ?? '';
+	}
+
+	function update_user_meta( $user_id, $key, $value ) {
+		$GLOBALS['cr_test_user_meta'][ $user_id ][ $key ] = $value;
+		return true;
+	}
+
+	function sanitize_key( $value ) {
+		return strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) $value ) );
+	}
+
+	function wcs_get_subscriptions_for_order( $order ) {
+		return $GLOBALS['cr_test_subscriptions'][ $order->get_id() ] ?? array();
+	}
+
 	function is_wc_endpoint_url( $endpoint ) {
 		return 'order-pay' === $endpoint && ! empty( $GLOBALS['cr_test_order_pay'] );
 	}
@@ -95,6 +115,47 @@ namespace {
 			return $default;
 		}
 	}
+
+	class WC_Payment_Token_CC {
+		private static $next_id = 1;
+		private $id = 0;
+		private $user_id = 0;
+		private $gateway_id = '';
+		private $token = '';
+		private $card_type = '';
+		private $last4 = '';
+		private $meta = array();
+
+		public function set_user_id( $value ) { $this->user_id = $value; }
+		public function get_user_id() { return $this->user_id; }
+		public function set_gateway_id( $value ) { $this->gateway_id = $value; }
+		public function get_gateway_id() { return $this->gateway_id; }
+		public function set_token( $value ) { $this->token = $value; }
+		public function get_token() { return $this->token; }
+		public function set_card_type( $value ) { $this->card_type = $value; }
+		public function get_card_type() { return $this->card_type; }
+		public function set_last4( $value ) { $this->last4 = $value; }
+		public function get_last4() { return $this->last4; }
+		public function set_expiry_month( $value ) { $this->meta['expiry_month'] = $value; }
+		public function set_expiry_year( $value ) { $this->meta['expiry_year'] = $value; }
+		public function get_id() { return $this->id; }
+		public function update_meta_data( $key, $value ) { $this->meta[ $key ] = $value; }
+		public function get_meta( $key ) { return $this->meta[ $key ] ?? ''; }
+		public function save() {
+			if ( ! $this->id ) { $this->id = self::$next_id++; }
+			WC_Payment_Tokens::$tokens[ $this->id ] = $this;
+		}
+	}
+
+	class WC_Payment_Tokens {
+		public static $tokens = array();
+		public static function get( $id ) { return self::$tokens[ $id ] ?? false; }
+		public static function get_customer_tokens( $user_id, $gateway_id ) {
+			return array_filter( self::$tokens, static function ( $token ) use ( $user_id, $gateway_id ) {
+				return $token->get_user_id() === $user_id && $token->get_gateway_id() === $gateway_id;
+			} );
+		}
+	}
 }
 
 namespace Newspack {
@@ -114,4 +175,5 @@ namespace {
 	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Gateway.php';
 	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Legacy_Gateway.php';
 	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Lock.php';
+	require_once dirname( __DIR__ ) . '/inc/Modules/DonationStripe/Token_Manager.php';
 }
