@@ -48,4 +48,12 @@ final class DonationStripeConfigurationTest extends TestCase {
 		$GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_scheduler_canary'] = time();
 		$this->assertTrue( Configuration::scheduler_healthy() );
 	}
+
+	public function test_restricted_and_standard_secret_key_formats_are_mode_scoped(): void {
+		$this->assertTrue( Configuration::valid_secret_key_format( 'rk_test_example', true ) );
+		$this->assertTrue( Configuration::valid_secret_key_format( 'sk_test_example', true ) );
+		$this->assertFalse( Configuration::valid_secret_key_format( 'rk_live_example', true ) );
+		$this->assertTrue( Configuration::valid_secret_key_format( 'rk_live_example', false ) );
+		$this->assertFalse( Configuration::valid_secret_key_format( 'pk_test_example', true ) );
+	}
 }

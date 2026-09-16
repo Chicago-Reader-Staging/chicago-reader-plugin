@@ -67,6 +67,18 @@ final class Configuration {
 	}
 
 	/**
+	 * Accept Stripe's standard or least-privilege restricted server keys.
+	 *
+	 * @param string $key       Candidate secret key.
+	 * @param bool   $test_mode Whether test mode is selected.
+	 * @return bool
+	 */
+	public static function valid_secret_key_format( $key, $test_mode ) {
+		$prefix = $test_mode ? '_test_' : '_live_';
+		return 0 === strpos( (string) $key, 'sk' . $prefix ) || 0 === strpos( (string) $key, 'rk' . $prefix );
+	}
+
+	/**
 	 * Whether an account ID is independently approved for the selected mode.
 	 *
 	 * @param string $account_id Stripe account ID.
@@ -162,7 +174,7 @@ final class Configuration {
 		return self::live_mode_allowed()
 			&& self::account_id_is_approved()
 			&& 0 === strpos( $publishable, 'pk' . $prefix )
-			&& 0 === strpos( $secret, 'sk' . $prefix )
+			&& self::valid_secret_key_format( $secret, self::is_test_mode() )
 			&& 0 === strpos( $webhook, 'whsec_' )
 			&& 0 === strpos( $account_id, 'acct_' );
 	}
