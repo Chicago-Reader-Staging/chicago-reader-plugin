@@ -36,7 +36,11 @@ $expected_prefixes = array(
 	'ACCOUNT_ID'      => 'acct_',
 );
 foreach ( $expected_prefixes as $name => $prefix ) {
-	if ( 0 !== strpos( $values[ $name ], $prefix ) ) {
+	$valid = 0 === strpos( $values[ $name ], $prefix );
+	if ( 'SECRET_KEY' === $name ) {
+		$valid = $valid || 0 === strpos( $values[ $name ], 'rk_' . strtolower( $stripe_config_mode ) . '_' );
+	}
+	if ( ! $valid ) {
 		throw new RuntimeException( 'Donation Stripe deployment value has the wrong mode or prefix: ' . $name );
 	}
 }
