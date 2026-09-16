@@ -126,10 +126,20 @@ final class Configuration {
 
 	/** @return bool */
 	public static function scheduler_healthy() {
-		$last_run = absint( get_option( '_chicago_reader_donation_stripe_last_scheduler_canary', 0 ) );
+		$last_run = absint( get_option( '_chicago_reader_donation_stripe_last_automatic_scheduler_canary', 0 ) );
 		return function_exists( 'as_enqueue_async_action' )
 			&& $last_run > time() - DAY_IN_SECONDS
 			&& $last_run <= time();
+	}
+
+	/**
+	 * Only Action Scheduler queue contexts, never an admin's manual Run action, prove queue health.
+	 *
+	 * @param string $context Action Scheduler execution context.
+	 * @return bool
+	 */
+	public static function is_automatic_queue_context( $context ) {
+		return in_array( (string) $context, array( 'WP Cron', 'Async Request', 'WP CLI' ), true );
 	}
 
 	/** New payment operations require both account isolation and a working queue. */
@@ -282,7 +292,7 @@ final class Configuration {
 		$color = $account_verified && $distinct && $scheduler_ok ? '#008a20' : '#b32d2e';
 		$received  = absint( get_option( '_chicago_reader_donation_stripe_last_webhook_received', 0 ) );
 		$processed = absint( get_option( '_chicago_reader_donation_stripe_last_webhook_processed', 0 ) );
-		$canary    = absint( get_option( '_chicago_reader_donation_stripe_last_scheduler_canary', 0 ) );
+		$canary    = absint( get_option( '_chicago_reader_donation_stripe_last_automatic_scheduler_canary', 0 ) );
 		$queue     = function_exists( 'as_enqueue_async_action' ) ? __( 'Action Scheduler available', 'chicago-reader' ) : __( 'Action Scheduler unavailable', 'chicago-reader' );
 		$webhooks  = sprintf(
 			/* translators: 1: received time, 2: processed time. */

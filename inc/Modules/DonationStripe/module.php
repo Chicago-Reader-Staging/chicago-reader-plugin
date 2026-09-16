@@ -80,8 +80,20 @@ function schedule_action_scheduler_canary() {
 add_action( 'admin_init', __NAMESPACE__ . '\schedule_action_scheduler_canary' );
 add_action( 'action_scheduler_ensure_recurring_actions', __NAMESPACE__ . '\schedule_action_scheduler_canary' );
 
-/** Record successful execution without storing request or customer data. */
-function record_action_scheduler_canary() {
-	update_option( '_chicago_reader_donation_stripe_last_scheduler_canary', time(), false );
+/**
+ * Record only a successful queue-runner execution, not an admin's manual Run action.
+ *
+ * @param int    $action_id Action Scheduler action ID.
+ * @param object $action Action Scheduler action object.
+ * @param string $context Action Scheduler execution context.
+ */
+function record_action_scheduler_canary( $action_id, $action, $context ) {
+	if ( ! is_object( $action ) || ! method_exists( $action, 'get_hook' ) || 'chicago_reader_donation_stripe_scheduler_canary_recurring' !== $action->get_hook() ) {
+		return;
+	}
+	if ( ! Configuration::is_automatic_queue_context( $context ) ) {
+		return;
+	}
+	update_option( '_chicago_reader_donation_stripe_last_automatic_scheduler_canary', time(), false );
 }
-add_action( 'chicago_reader_donation_stripe_scheduler_canary_recurring', __NAMESPACE__ . '\record_action_scheduler_canary' );
+add_action( 'action_scheduler_after_execute', __NAMESPACE__ . '\record_action_scheduler_canary', 10, 3 );

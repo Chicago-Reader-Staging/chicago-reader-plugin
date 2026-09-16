@@ -13,7 +13,7 @@ final class DonationStripeConfigurationTest extends TestCase {
 
 	protected function tearDown(): void {
 		WC_Stripe::get_instance()->account->id = $this->original_account_id;
-		unset( $GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_scheduler_canary'] );
+		unset( $GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_automatic_scheduler_canary'] );
 	}
 
 	public function test_donation_account_must_differ_from_official_stripe_account(): void {
@@ -43,10 +43,21 @@ final class DonationStripeConfigurationTest extends TestCase {
 
 	public function test_scheduler_requires_recent_canary(): void {
 		$this->assertFalse( Configuration::scheduler_healthy() );
-		$GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_scheduler_canary'] = time() - DAY_IN_SECONDS - 1;
+		$GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_automatic_scheduler_canary'] = time() - DAY_IN_SECONDS - 1;
 		$this->assertFalse( Configuration::scheduler_healthy() );
-		$GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_scheduler_canary'] = time();
+		$GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_automatic_scheduler_canary'] = time();
 		$this->assertTrue( Configuration::scheduler_healthy() );
+	}
+
+	public function test_admin_run_cannot_satisfy_scheduler_health(): void {
+		$GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_scheduler_canary'] = time();
+		$this->assertFalse( Configuration::scheduler_healthy() );
+		unset( $GLOBALS['cr_test_options']['_chicago_reader_donation_stripe_last_scheduler_canary'] );
+		$this->assertFalse( Configuration::is_automatic_queue_context( 'Admin List Table' ) );
+		$this->assertFalse( Configuration::is_automatic_queue_context( '' ) );
+		$this->assertTrue( Configuration::is_automatic_queue_context( 'WP Cron' ) );
+		$this->assertTrue( Configuration::is_automatic_queue_context( 'Async Request' ) );
+		$this->assertTrue( Configuration::is_automatic_queue_context( 'WP CLI' ) );
 	}
 
 	public function test_restricted_and_standard_secret_key_formats_are_mode_scoped(): void {
