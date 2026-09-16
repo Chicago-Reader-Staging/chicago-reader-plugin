@@ -80,6 +80,13 @@ function schedule_action_scheduler_canary() {
 add_action( 'admin_init', __NAMESPACE__ . '\schedule_action_scheduler_canary' );
 add_action( 'action_scheduler_ensure_recurring_actions', __NAMESPACE__ . '\schedule_action_scheduler_canary' );
 
+/** Action Scheduler requires a callback for the canary action to complete. */
+function action_scheduler_canary() {
+	// Completion is recorded by action_scheduler_after_execute below, which
+	// provides the execution context needed to reject an admin's manual Run.
+}
+add_action( 'chicago_reader_donation_stripe_scheduler_canary_recurring', __NAMESPACE__ . '\action_scheduler_canary' );
+
 /**
  * Record only a successful queue-runner execution, not an admin's manual Run action.
  *

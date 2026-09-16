@@ -23,4 +23,9 @@ final class DonationStripeRealPluginsTest extends TestCase {
 		$this->assertTrue( function_exists( 'wcs_create_subscription' ) );
 		$this->assertNotFalse( has_action( 'woocommerce_scheduled_subscription_payment_' . Gateway::ID ) );
 	}
+
+	public function test_scheduler_canary_has_a_callback_and_completion_observer(): void {
+		$this->assertNotFalse( has_action( 'chicago_reader_donation_stripe_scheduler_canary_recurring', 'ChicagoReader\\Modules\\DonationStripe\\action_scheduler_canary' ) );
+		$this->assertNotFalse( has_action( 'action_scheduler_after_execute', 'ChicagoReader\\Modules\\DonationStripe\\record_action_scheduler_canary' ) );
+	}
 }
